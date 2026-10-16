@@ -1,0 +1,153 @@
+name: CI
+
+on:
+    push:
+    pull_request:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    sdk-and-package:
+        runs-on: ubuntu-24.04
+        env:
+            CC: gcc-14
+            CXX: g++-14
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+            - name: Install build tools
+              run: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14 ninja-build python3-build
+            - name: Validate public C header
+              run: >-
+                  cc -std=c11 -Wall -Wextra -Werror -Iinclude -x c
+                  -fsyntax-only src/runtime/tests/c_api_test.c
+            - name: Configure
+              run: >-
+                  cmake -S . -B build -G Ninja
+                  -DCMAKE_BUILD_TYPE=Release
+                  -DMLN_BUILD_RUNTIME=OFF
+                  -DMLN_BUILD_TESTS=ON
+            - name: Build
+              run: cmake --build build --parallel 2
+            - name: Test
+              run: ctest --test-dir build --output-on-failure
+            - name: Build Python distribution
+              run: python3 -m build python
+            - name: Test built Python wheel
+              run: |
+                  python3 -m venv "${RUNNER_TEMP}/wheel-test"
+                  "${RUNNER_TEMP}/wheel-test/bin/python" -m pip install python/dist/*.whl
+                  "${RUNNER_TEMP}/wheel-test/bin/python" -c \
+                    "import myelin; assert myelin.__version__ == '1.0.0'; print(myelin.__file__)"
+                  python3 - <<'PY'
+                  from pathlib import Path
+                  from zipfile import ZipFile
+
+                  wheel = next(Path("python/dist").glob("*.whl"))
+                  with ZipFile(wheel) as archive:
+                      assert any(name.endswith("/licenses/LICENSE") for name in archive.namelist())
+                  PY
+            - name: Validate Python sources
+              run: python3 -m compileall -q python/src python/tests
+
+    runtime-and-python:
+        runs-on: ubuntu-24.04
+        env:
+            CC: gcc-14
+            CXX: g++-14
+            WASMTIME_VERSION: 40.0.0
+            WASMTIME_SHA256: a52816587989fe15d6ddb60366ee0e9b617b6cbb7eff0cade782b3f0613e719d
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+            - name: Install build tools
+              run: sudo apt-get update && sudo apt-get install -y gcc-14 g++-14 ninja-build python3-venv
+            - name: Install Wasmtime C API
+              run: |
+                  archive="wasmtime-v${WASMTIME_VERSION}-x86_64-linux-c-api.tar.xz"
+                  curl --fail --location --silent --show-error \
+                    "https://github.com/bytecodealliance/wasmtime/releases/download/v${WASMTIME_VERSION}/${archive}" \
+                    --output "${RUNNER_TEMP}/${archive}"
+                  echo "${WASMTIME_SHA256}  ${RUNNER_TEMP}/${archive}" | sha256sum --check
+                  mkdir -p "${RUNNER_TEMP}/wasmtime"
+                  tar -xJf "${RUNNER_TEMP}/${archive}" \
+                    --strip-components=1 -C "${RUNNER_TEMP}/wasmtime"
+            - name: Configure runtime
+              run: >-
+                  cmake -S . -B build-runtime -G Ninja
+                  -DCMAKE_BUILD_TYPE=Release
+                  -DCMAKE_PREFIX_PATH=${RUNNER_TEMP}/wasmtime
+                  -DMLN_BUILD_RUNTIME=ON
+                  -DMLN_BUILD_TESTS=ON
+            - name: Build runtime
+              run: cmake --build build-runtime --parallel 2
+            - name: Test native runtime
+              run: ctest --test-dir build-runtime --output-on-failure
+            - name: Validate runtime ABI exports
+              run: |
+                  readelf -d build-runtime/src/runtime/libmln_runtime.so \
+                    | grep -Fq 'Library soname: [libmln_runtime.so.1]'
+                  for symbol in mln_c_api_version mln_runtime_create mln_session_cancel \
+                    mln_session_invoke_buffers mln_artifact_requirements; do
+                    nm -D --defined-only build-runtime/src/runtime/libmln_runtime.so \
+                      | awk '{print $3}' | grep -Fx "$symbol" > /dev/null
+                  done
+            - name: Test installed CMake package
+              run: |
+                  cmake --install build-runtime --prefix "${RUNNER_TEMP}/myelin"
+                  cmake -S tests/install -B build-consumer -G Ninja \
+                    -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/myelin"
+                  cmake --build build-consumer
+                  LD_LIBRARY_PATH="${RUNNER_TEMP}/myelin/lib:${RUNNER_TEMP}/wasmtime/lib" \
+                    build-consumer/myelin_install_test
+            - name: Install Python package
+              run: |
+                  python3 -m venv .venv
+                  .venv/bin/python -m pip install pytest ./python
+            - name: Test Python binding
+              env:
+                  MLN_RUNTIME_LIBRARY: ${{ github.workspace }}/build-runtime/src/runtime/libmln_runtime.so
+                  LD_LIBRARY_PATH: ${{ runner.temp }}/wasmtime/lib
+              run: .venv/bin/python -m pytest -q python/tests
+            - name: Test runtime with sanitizers
+              run: |
+                  cmake -S . -B build-runtime -DMLN_ENABLE_SANITIZERS=ON
+                  cmake --build build-runtime --parallel 2
+                  ctest --test-dir build-runtime --output-on-failure
+            - name: Verify vendored sources are untouched
+              run: |
+                  git -C third_party/iree diff --exit-code
+                  git diff --exit-code -- third_party/iree
+
+    sanitizers-and-fuzz:
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  submodules: recursive
+            - name: Install build tools
+              run: sudo apt-get update && sudo apt-get install -y clang g++-14 ninja-build
+            - name: Configure
+              env:
+                  CC: clang
+                  CXX: clang++
+              run: >-
+                  cmake -S . -B build-fuzz -G Ninja
+                  -DCMAKE_BUILD_TYPE=Debug
+                  -DMLN_BUILD_RUNTIME=OFF
+                  -DMLN_BUILD_TESTS=ON
+                  -DMLN_ENABLE_SANITIZERS=ON
+                  -DMLN_BUILD_FUZZERS=ON
+            - name: Build
+              run: cmake --build build-fuzz --parallel 2
+            - name: Sanitizer tests
+              run: ctest --test-dir build-fuzz --output-on-failure
+            - name: Fuzzer smoke corpus
+              run: |
+                  mkdir -p build-fuzz/corpus
+                  cp build-fuzz/src/runtime/test-assets.mln build-fuzz/corpus/valid.mln
+                  build-fuzz/src/runtime/mln_package_fuzzer -runs=1000 build-fuzz/corpus

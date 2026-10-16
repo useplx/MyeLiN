@@ -1,0 +1,41 @@
+# Build trees and generated CMake files
+/build*/
+/cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+CTestTestfile.cmake
+Testing/
+
+# Compiler and linker outputs
+*.a
+*.dll
+*.dylib
+*.exe
+*.o
+*.obj
+*.so
+*.wasm
+
+# Python packaging and interpreter caches
+__pycache__/
+*.egg-info/
+/python/dist/
+/python/build/
+
+# Myelin-generated artifacts and local archives
+*.mln
+/MyeLiN.zip
+
+# Editor and tooling caches
+/.cache/
+/.clangd/
+/.idea/
+/.vscode/
+*.swp
+*~
+
+# Platform metadata
+.DS_Store
+Thumbs.db

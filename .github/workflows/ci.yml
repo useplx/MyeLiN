@@ -100,7 +100,8 @@ jobs:
               run: |
                   cmake --install build-runtime --prefix "${RUNNER_TEMP}/myelin"
                   cmake -S tests/install -B build-consumer -G Ninja \
-                    -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/myelin"
+                    -DCMAKE_PREFIX_PATH="${RUNNER_TEMP}/myelin" \
+                    -DCMAKE_EXE_LINKER_FLAGS="-Wl,-rpath-link,${RUNNER_TEMP}/wasmtime/lib"
                   cmake --build build-consumer
                   LD_LIBRARY_PATH="${RUNNER_TEMP}/myelin/lib:${RUNNER_TEMP}/wasmtime/lib" \
                     build-consumer/myelin_install_test

@@ -61,7 +61,7 @@ if(MLN_BUILD_TESTS)
   add_executable(mln_audio_test tests/audio_test.cpp)
   target_link_libraries(mln_audio_test PRIVATE mln_sdk)
   target_compile_features(mln_audio_test PRIVATE cxx_std_23)
-  foreach(audio_case window rms stft magnitude mel_filterbank logmel spectral_flux event_detector fingerprint classifier augmentation)
+  foreach(audio_case window rms stft magnitude mel_filterbank logmel noise_gate spectral_flux event_detector fingerprint classifier augmentation)
     add_test(NAME mln_audio_${audio_case} COMMAND mln_audio_test ${audio_case})
   endforeach()
 

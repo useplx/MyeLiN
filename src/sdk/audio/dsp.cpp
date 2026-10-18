@@ -166,6 +166,31 @@ namespace Mln::Audio {
         return output;
     }
 
+    Spectrogram spectral_noise_gate(const Spectrogram &spectrum, float noise_quantile,
+                                    float floor) {
+        if (noise_quantile < 0.0f || noise_quantile > 1.0f || !std::isfinite(floor))
+            throw std::invalid_argument("spectral noise gate parameters are invalid");
+        if (spectrum.values.size() != spectrum.frames * spectrum.bins)
+            throw std::invalid_argument("spectrogram dimensions do not match its values");
+        Spectrogram output{spectrum.frames, spectrum.bins,
+                           std::vector<float>(spectrum.values.size(), floor)};
+        if (spectrum.frames == 0 || spectrum.bins == 0)
+            return output;
+        const std::size_t quantile_index = static_cast<std::size_t>(
+            noise_quantile * static_cast<float>(spectrum.frames - 1));
+        std::vector<float> values(spectrum.frames);
+        for (std::size_t bin = 0; bin < spectrum.bins; ++bin) {
+            for (std::size_t frame = 0; frame < spectrum.frames; ++frame)
+                values[frame] = spectrum.values[frame * spectrum.bins + bin];
+            std::nth_element(values.begin(), values.begin() + quantile_index, values.end());
+            const float noise_floor = values[quantile_index];
+            for (std::size_t frame = 0; frame < spectrum.frames; ++frame)
+                output.values[frame * spectrum.bins + bin] = std::max(
+                    floor, spectrum.values[frame * spectrum.bins + bin] - noise_floor);
+        }
+        return output;
+    }
+
     float spectral_flux(const Spectrogram &spectrum) {
         if (spectrum.frames < 2 || spectrum.bins == 0)
             return 0.0f;

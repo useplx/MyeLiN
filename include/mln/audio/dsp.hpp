@@ -35,6 +35,8 @@ namespace Mln::Audio {
                                       float maximum_hz = 0.0f);
     Spectrogram log_mel(std::span<const float> input, uint32_t sample_rate, std::size_t fft_size,
                         std::size_t hop_size, std::size_t mel_bins, float floor = 1.0e-6f);
+    Spectrogram spectral_noise_gate(const Spectrogram &spectrum, float noise_quantile = 0.2f,
+                                    float floor = 0.0f);
     float spectral_flux(const Spectrogram &spectrum);
     float event_probability(float energy, float flux, float similarity, float class_margin,
                             const EventDetectorConfig &config = {});

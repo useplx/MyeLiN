@@ -52,6 +52,13 @@ int main(int argc, char **argv) {
     } else if (test == "spectral_flux") {
         Mln::Audio::Spectrogram value{2, 2, {1, 3, 2, 1}};
         require(near(Mln::Audio::spectral_flux(value), .5f));
+    } else if (test == "noise_gate") {
+        Mln::Audio::Spectrogram value{4, 2, {1, 10, 2, 10, 5, 14, 3, 12}};
+        const auto gated = Mln::Audio::spectral_noise_gate(value, .34f);
+        const std::array<float, 8> expected{0, 0, 0, 0, 3, 4, 1, 2};
+        require(gated.frames == 4 && gated.bins == 2 && gated.values.size() == expected.size());
+        for (std::size_t index = 0; index < expected.size(); ++index)
+            require(near(gated.values[index], expected[index]));
     } else if (test == "event_detector") {
         require(near(Mln::Audio::event_probability(.02f, 0, 1, .03f), 1));
         require(near(Mln::Audio::event_probability(.02f, 0, .8f, .03f), 0));

@@ -67,7 +67,7 @@ namespace Mln::Sdk::Native {
     inline constexpr uint32_t MIN_COMPATIBLE_ABI_VERSION = 6;
 }
 
-#if defined(_WIN32) && defined(MLN_NATIVE)
+#if defined(_WIN32)
 extern "C" __declspec(dllexport) const ::Mln::Sdk::Native::Module *mln_native_module();
 #else
 extern "C" const ::Mln::Sdk::Native::Module *mln_native_module();

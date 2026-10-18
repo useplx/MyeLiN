@@ -56,7 +56,11 @@ if(MLN_BUILD_RUNTIME AND NOT MLN_NATIVE_ONLY_RUNTIME)
   endif()
 endif()
 
-set(MLN_WARNINGS -Wall -Wextra -Wshadow)
+if(MSVC)
+  set(MLN_WARNINGS /W4)
+else()
+  set(MLN_WARNINGS -Wall -Wextra -Wshadow)
+endif()
 add_compile_options(${MLN_WARNINGS})
 
 if(MLN_ENABLE_SANITIZERS)

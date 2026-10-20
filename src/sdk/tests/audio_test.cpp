@@ -31,6 +31,22 @@ int main(int argc, char **argv) {
     if (test == "window") {
         const auto value = Mln::Audio::hann_window(5);
         require(near(value[0], 0) && near(value[1], .5f) && near(value[2], 1) && near(value[4], 0));
+    } else if (test == "phase_safe") {
+        const std::array<float, 6> stereo{.5f, -.5f, .1f, -.1f, -.8f, .8f};
+        const auto mono = Mln::Audio::mix_to_mono_phase_safe(stereo, 2);
+        require(near(mono[0], .5f) && near(mono[1], .1f) && near(mono[2], -.8f));
+        require(Mln::Audio::mix_to_mono_phase_safe(std::array<float, 2>{.5f, .5f}, 2)[0] == .5f);
+        require(Mln::Audio::mix_to_mono_phase_safe(stereo, 1) == std::vector<float>(stereo.begin(), stereo.end()));
+    } else if (test == "resample_bandlimited") {
+        for (const uint32_t rate : {44'100, 48'000, 96'000}) {
+            const auto low = Mln::Audio::resample_bandlimited(tone(rate, 1000), rate, 16'000);
+            const auto high = Mln::Audio::resample_bandlimited(tone(rate, 12000), rate, 16'000);
+            require(low.size() == 16'000 && high.size() == 16'000);
+            require(near(Mln::Audio::rms(std::span(low).subspan(100, 15800)), std::sqrt(.5f), .002f));
+            require(Mln::Audio::rms(std::span(high).subspan(100, 15800)) < .001f);
+            const auto constant = Mln::Audio::resample_bandlimited(std::vector<float>(rate, .3f), rate, 16'000);
+            for (float value : constant) require(near(value, .3f));
+        }
     } else if (test == "rms") {
         const std::array<float, 4> value{1, -1, 1, -1};
         require(near(Mln::Audio::rms(value), 1));

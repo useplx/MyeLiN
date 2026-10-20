@@ -23,8 +23,11 @@ namespace Mln::Audio {
 
     std::vector<float> pcm_s16_to_f32(std::span<const int16_t> input);
     std::vector<float> mix_to_mono(std::span<const float> interleaved, std::size_t channels);
+    std::vector<float> mix_to_mono_phase_safe(std::span<const float> interleaved, std::size_t channels);
     std::vector<float> resample_linear(std::span<const float> input, uint32_t source_rate,
                                        uint32_t target_rate);
+    std::vector<float> resample_bandlimited(std::span<const float> input, uint32_t source_rate,
+                                           uint32_t target_rate);
     std::vector<float> hann_window(std::size_t size);
     float rms(std::span<const float> input);
     std::vector<std::complex<float>> fft(std::span<const float> input);

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <numeric>
 #include <stdexcept>
 
 namespace Mln::Audio {
@@ -24,6 +25,23 @@ namespace Mln::Audio {
         return output;
     }
 
+    std::vector<float> mix_to_mono_phase_safe(std::span<const float> input, std::size_t channels) {
+        auto mono = mix_to_mono(input, channels);
+        if (mono.empty() || channels == 1) return mono;
+        std::vector<double> energy(channels, 0.0);
+        for (std::size_t index = 0; index < input.size(); ++index)
+            energy[index % channels] += static_cast<double>(input[index]) * input[index];
+        const auto strongest = std::max_element(energy.begin(), energy.end());
+        double mixed_energy = 0.0;
+        for (float value : mono) mixed_energy += static_cast<double>(value) * value;
+        if (mixed_energy < .0625 * *strongest) {
+            const auto channel = static_cast<std::size_t>(std::distance(energy.begin(), strongest));
+            for (std::size_t frame = 0; frame < mono.size(); ++frame)
+                mono[frame] = input[frame * channels + channel];
+        }
+        return mono;
+    }
+
     std::vector<float> resample_linear(std::span<const float> input, uint32_t source_rate,
                                        uint32_t target_rate) {
         if (source_rate == 0 || target_rate == 0)
@@ -39,6 +57,56 @@ namespace Mln::Audio {
             const std::size_t right = std::min(left + 1, input.size() - 1);
             const float fraction = static_cast<float>(position - left);
             output[index] = input[left] + (input[right] - input[left]) * fraction;
+        }
+        return output;
+    }
+
+    std::vector<float> resample_bandlimited(std::span<const float> input, uint32_t source_rate,
+                                           uint32_t target_rate) {
+        if (source_rate == 0 || target_rate == 0)
+            throw std::invalid_argument("sample rates must be positive");
+        if (input.empty() || source_rate == target_rate)
+            return {input.begin(), input.end()};
+        const double ratio = std::min(1.0, static_cast<double>(target_rate) / source_rate);
+        const double cutoff = .94 * ratio;
+        const int radius = static_cast<int>(std::ceil(24.0 / ratio));
+        const uint32_t phases = target_rate / std::gcd(source_rate, target_rate);
+        if (radius > 4096 || phases > 192000)
+            throw std::invalid_argument("unsupported resampling ratio");
+        const std::size_t taps = static_cast<std::size_t>(radius * 2 + 1);
+        if (static_cast<uint64_t>(phases) * taps > 16'000'000)
+            throw std::invalid_argument("resampling kernel exceeds memory limit");
+        std::vector<float> kernels(phases * taps);
+        for (uint32_t phase = 0; phase < phases; ++phase) {
+            const double fraction = static_cast<double>(phase) / phases;
+            double sum = 0.0;
+            for (int tap = -radius; tap <= radius; ++tap) {
+                const double distance = tap - fraction;
+                const double position = distance * cutoff * std::numbers::pi;
+                const double window = std::abs(distance) <= radius
+                    ? .42 + .5 * std::cos(std::numbers::pi * distance / radius) +
+                        .08 * std::cos(2.0 * std::numbers::pi * distance / radius)
+                    : 0.0;
+                const double weight = cutoff * (std::abs(position) < 1.e-12 ? 1.0 : std::sin(position) / position) * window;
+                kernels[phase * taps + tap + radius] = static_cast<float>(weight);
+                sum += weight;
+            }
+            for (std::size_t tap = 0; tap < taps; ++tap)
+                kernels[phase * taps + tap] /= static_cast<float>(sum);
+        }
+        std::vector<float> output(static_cast<std::size_t>(
+            std::llround(static_cast<double>(input.size()) * target_rate / source_rate)));
+        const uint32_t divisor = std::gcd(source_rate, target_rate);
+        for (std::size_t index = 0; index < output.size(); ++index) {
+            const uint64_t position = static_cast<uint64_t>(index) * source_rate;
+            const auto center = static_cast<int64_t>(position / target_rate);
+            const std::size_t phase = (position % target_rate) / divisor;
+            double value = 0.0;
+            for (int tap = -radius; tap <= radius; ++tap) {
+                const auto sample = std::clamp<int64_t>(center + tap, 0, input.size() - 1);
+                value += input[static_cast<std::size_t>(sample)] * kernels[phase * taps + tap + radius];
+            }
+            output[index] = static_cast<float>(value);
         }
         return output;
     }
